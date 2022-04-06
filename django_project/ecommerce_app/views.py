@@ -4,7 +4,10 @@ from django.contrib import messages
 from .models import Product, Order, LineItem
 from .forms import CartForm, CheckoutForm
 from . import cart
-
+from paypal.standard.forms import PayPalPaymentsForm
+from django.views.decorators.csrf import csrf_exempt
+from django.conf import settings
+from decimal import Decimal
 # Create your views here.
 
 
@@ -77,10 +80,40 @@ def checkout(request):
             request.session['order_id'] = o.id
 
             messages.add_message(request, messages.INFO, 'Order Placed!')
-            return redirect('checkout')
+            return redirect('process_payment')
 
 
     else:
         form = CheckoutForm()
         return render(request, 'ecommerce_app/checkout.html', {'form': form})
 
+def process_payment(request):
+    order_id = request.session.get('order_id')
+    order = get_object_or_404(Order, id=order_id)
+    host = request.get_host()
+
+    paypal_dict = {
+        'business': settings.PAYPAL_RECEIVER_EMAIL,
+        'amount': '59.99' ,
+        'item_name': 'Order {}'.format(order.id),
+        'invoice': str(order.id),
+        'currency_code': 'CAD',
+        'notify_url': 'http://{}{}'.format(host,
+                                           reverse('paypal-ipn')),
+        'return_url': 'http://{}{}'.format(host,
+                                           reverse('payment_done')),
+        'cancel_return': 'http://{}{}'.format(host,
+                                              reverse('payment_cancelled')),
+    }
+
+    form = PayPalPaymentsForm(initial=paypal_dict)
+    return render(request, 'ecommerce_app/process_payment.html', {'order': order, 'form': form})
+
+@csrf_exempt
+def payment_done(request):
+    return render(request, 'ecommerce_app/payment_done.html')
+
+
+@csrf_exempt
+def payment_canceled(request):
+    return render(request, 'ecommerce_app/payment_cancelled.html')
